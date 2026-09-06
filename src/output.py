@@ -16,13 +16,14 @@ import csv
 import logging
 from dataclasses import replace
 from pathlib import Path
-from typing import Iterable, Sequence
+from typing import Iterable, Mapping, Sequence
 
 from .matching.base import Match
 from .matching.engine import detected_flag
 from .models import SourceNotice, TenderRow
 from .normalise import clean_text, parse_date
 from .parsing.annex import AnnexPack
+from .parsing.price_register import RegulatedPrice
 
 logger = logging.getLogger(__name__)
 
@@ -30,10 +31,9 @@ logger = logging.getLogger(__name__)
 def build_row(notice: SourceNotice, match: Match) -> TenderRow:
     """Build one CSV row from a notice and the evidence tying it to a molecule.
 
-    Pack-level fields (item number, strength, pack size, max price, historical
-    volume) are left empty here. They exist only inside tender annexes hosted on the
-    buyer's document portal, which requires a supplier account; the notice payloads
-    that this pipeline can reach do not carry them.
+    Pack-level fields are left empty here because a notice does not carry them: they
+    come from the tender annex and the price register, and `build_pack_rows` fills
+    them in for the notices those documents cover.
     """
     return TenderRow(
         noticeId=notice.notice_id,
@@ -70,24 +70,28 @@ def build_row(notice: SourceNotice, match: Match) -> TenderRow:
 
 
 def build_pack_rows(
-    notice: SourceNotice, match: Match, packs: Sequence[AnnexPack]
+    notice: SourceNotice,
+    match: Match,
+    packs: Sequence[AnnexPack],
+    prices: Mapping[str, RegulatedPrice] | None = None,
 ) -> list[TenderRow]:
     """Expand one notice into a row per pack, using annex detail.
 
     The brief asks for one row per molecule per pack "where pack-level detail
     exists", falling back to one row per notice otherwise. This is the former case.
 
-    `maxPrice` is never populated from an annex, and that is a semantic decision
-    rather than an artefact of the current file being blank. The annex column is
-    `TILBUDT GIP` - the price a *supplier offers* when bidding. The CSV's `maxPrice`
-    means the *buyer's regulated maximum*. They are different quantities, so copying
-    one into the other would misreport a bid as a price ceiling even if the column
-    were populated. The volume column is populated, because that genuinely is the
-    buyer's own published historical consumption.
+    `maxPrice` never comes from the annex, whose price column is what a *supplier
+    offers* when bidding — a different quantity from the buyer's regulated ceiling.
+    It comes from the medicines agency's published maximum-price register instead,
+    joined on the Norwegian item number, so the figure written is the official one
+    for that exact pack. A pack absent from the register (delisted, for example)
+    keeps an empty `maxPrice` rather than an inferred one.
     """
     base = build_row(notice, match)
+    prices = prices or {}
     rows: list[TenderRow] = []
     for pack in packs:
+        regulated = prices.get(pack.item_number or "")
         row = replace(
             base,
             itemNumber=pack.item_number,
@@ -96,11 +100,21 @@ def build_pack_rows(
             packSize=pack.pack_size,
             supplier=pack.supplier,
             packsSoldLast12m=pack.packs_last_12m,
-            maxPrice=None,  # never the supplier's offered price - see docstring
-            sourceDocument=pack.source_document,
+            maxPrice=regulated.max_aip if regulated else None,
+            # Hospital tenders are denominated in AIP, and the register publishes in
+            # NOK, so a pack with a regulated price has a known currency.
+            currency=base.currency or ("NOK" if regulated else None),
+            sourceDocument=_pack_provenance(pack, regulated),
         )
         rows.append(row)
     return rows
+
+
+def _pack_provenance(pack: AnnexPack, price: RegulatedPrice | None) -> str:
+    """Name every document a pack row draws on, so a value can be traced back."""
+    if price is None:
+        return pack.source_document
+    return f"{pack.source_document}; {price.source_document}"
 
 
 def write_csv(rows: Sequence[TenderRow], path: Path) -> Path:

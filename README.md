@@ -5,6 +5,7 @@ Anagrelide, Paliperidone** — from Norwegian public procurement sources, and tu
 into a bid recommendation.
 
 Output: **44 rows** in `output/output.csv`, four charts in `output/charts/`.
+**26 of 28 columns populated.**
 
 ---
 
@@ -200,26 +201,40 @@ but values are taken, never summed, since notices restate the same figure.
 
 ## What the CSV does and does not contain
 
-**25 of 28 columns carry data.** The three that do not are empty for stated reasons,
-not for lack of trying:
+**26 of 28 columns carry data.** The two that do not are empty for reasons I checked
+against the wider dataset rather than inferred from our five molecules:
 
 | column | why empty |
 |---|---|
-| `maxPrice` | The Prisskjema is the **blank bidding template** suppliers fill in. Its `TILBUDT GIP` (offered price) column is empty in all 993 rows, so there is no price in the document to read. |
-| `awardedValue`, `awardedSupplier` | **Not published.** 0 of 3 award notices disclose a value. |
+| `awardedValue` | Our molecules' award notices publish no value. This is **not** a blanket rule: of 100 Norwegian pharmaceutical award notices sampled, **81 do publish** one. So the absence is specific to these tenders, not a property of Norwegian procurement. |
+| `awardedSupplier` | **0 of 50** Norwegian pharmaceutical award notices populate any winner field — `winner-name`, `winner-identifier`, `organisation-name-tenderer` and three others were all checked and all empty. The winner is systematically not published in structured form. |
 
-The pack-level columns — `itemNumber`, `productName`, `strength`, `packSize`,
-`supplier`, `packsSoldLast12m` — are populated from the annex for the 4 axitinib pack
-rows, and empty on notice-level rows where no annex applies.
+### maxPrice: sourced from a second document, not from the tender
 
-**Price disclosure is not uniform, and that is a finding rather than a gap.** Of the
-award notices retrieved, **0 of 3 publish a value**, while 12 of 25 competition rows
-do. The clearest case is one tender: `LIS 2234 Lenalidomid` publishes 320 MNOK on its
-contract notice, and its own award notice publishes nothing. A bidder cannot see what
-the incumbent charged.
+`maxPrice` means the *regulated maximum* a pharmacy may pay, which is set by the
+medicines agency. The tender annex cannot supply it — its price column (`TILBUDT GIP`)
+is what a **supplier offers** when bidding, empty in all 196 rows because the file is a
+blank template, and a different quantity in any case.
 
-Nothing is substituted for a missing value. An empty cell is information; an invented
-one would not survive checking.
+The agency publishes the register itself as a free download:
+
+```
+https://www.dmp.no/offentlig-finansiering/pris-pa-legemidler/maksimalpris
+  -> legemiddelpriser-2026-09-03.xlsx    9 811 packs, no authentication
+```
+
+It is keyed by `Varenummer`, the same item number the annex lists, so the join is
+exact rather than approximate — e.g. Inlyta 5 mg (varenr 599010) → **32 845,79 NOK**
+maximum AIP. Hospital tenders are denominated in AIP ("i maksimal AIP"), so AIP is the
+figure used rather than the retail AUP the register also carries.
+
+One pack, Inlyta 3 mg, is absent from the register and keeps an empty `maxPrice`. That
+is the correct outcome: the pack exists in the tender but has no current regulated
+price, and inventing one by interpolating from the 1 mg and 5 mg strengths would be
+exactly the fabrication the brief warns about.
+
+Each pack row's `sourceDocument` names both documents it draws on, so any value can be
+traced to the file it came from.
 
 ---
 

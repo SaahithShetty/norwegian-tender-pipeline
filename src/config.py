@@ -15,6 +15,8 @@ CACHE_DIR: Final[Path] = PROJECT_ROOT / "data" / "cache"
 # local directory rather than fetched. A run without them succeeds, with the
 # pack-level columns left empty.
 ANNEX_DIR: Final[Path] = PROJECT_ROOT / "data" / "manual"
+# Freely downloadable reference data (the regulated maximum-price register).
+REFERENCE_DIR: Final[Path] = PROJECT_ROOT / "data" / "reference"
 OUTPUT_DIR: Final[Path] = PROJECT_ROOT / "output"
 
 # Polite crawling. The brief asks for 1-2s rate limiting and a meaningful User-Agent.

@@ -25,7 +25,14 @@ from typing import Final, Sequence
 
 import re
 
-from .config import ANNEX_DIR, CPV_PHARMACEUTICAL, MOLECULES, OUTPUT_DIR, Molecule
+from .config import (
+    ANNEX_DIR,
+    CPV_PHARMACEUTICAL,
+    MOLECULES,
+    OUTPUT_DIR,
+    REFERENCE_DIR,
+    Molecule,
+)
 from .dedup import (
     cross_source_pairs,
     deduplicate_notices,
@@ -39,6 +46,7 @@ from .models import NoticeLifecycle, SourceNotice, TenderRow
 from .naming import normalise_for_search, norwegian_variants
 from .output import build_pack_rows, build_row, coverage_report, write_csv
 from .parsing.annex import AnnexPack, load_annexes, packs_for_atc
+from .parsing.price_register import load_price_register
 from .sources.doffin import DoffinSource
 from .sources.ted import TedSource
 
@@ -91,6 +99,14 @@ class Pipeline:
         # Annexes are optional: they require a supplier account, so a run without
         # them must still succeed, just with the pack-level columns empty.
         self._annex_packs = load_annexes(annex_dir or ANNEX_DIR)
+        # The regulated price register is public and downloadable, so unlike the
+        # annexes it is fetched rather than supplied by hand. An empty register
+        # only means maxPrice stays empty.
+        self._prices = (
+            load_price_register(self._client, REFERENCE_DIR)
+            if self._annex_packs
+            else {}
+        )
 
     # ------------------------------------------------------------- discovery --
 
@@ -162,7 +178,9 @@ class Pipeline:
                 # row per pack, as the brief specifies; otherwise one row per notice.
                 packs = self._packs_for(match, enriched)
                 if packs:
-                    rows.extend(build_pack_rows(enriched, match, packs))
+                    rows.extend(
+                        build_pack_rows(enriched, match, packs, self._prices)
+                    )
                 else:
                     rows.append(build_row(enriched, match))
 
