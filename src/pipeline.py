@@ -113,8 +113,6 @@ class Pipeline:
         logger.info("retrieved %d notices (%d after dedup)", len(raw_notices), len(notices))
 
         rows: list[TenderRow] = []
-        rows_by_molecule: dict[str, int] = defaultdict(int)
-        rows_by_method: dict[str, int] = defaultdict(int)
         matched_notices: list[SourceNotice] = []
 
         for notice in notices:
@@ -136,10 +134,7 @@ class Pipeline:
             matched_notices.append(enriched)
 
             for match in matches:
-                row = build_row(enriched, match)
-                rows.append(row)
-                rows_by_molecule[match.molecule.inn_en] += 1
-                rows_by_method[match.method.value] += 1
+                rows.append(build_row(enriched, match))
 
         rows = self._drop_redundant_bundle_rows(rows)
         rows.sort(key=lambda r: (r.productMolecule, r.publicationDate or "", r.noticeId))

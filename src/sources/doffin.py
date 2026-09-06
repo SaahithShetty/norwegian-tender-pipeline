@@ -91,7 +91,16 @@ class DoffinSource:
         page = 1
         while seen < limit:
             body = self._build_body(search_string, page=page, cpv_codes=cpv_codes)
-            payload = self._client.post_json(SEARCH_URL, body)
+            try:
+                payload = self._client.post_json(SEARCH_URL, body)
+            except Exception as exc:  # noqa: BLE001 - one query must not end the run
+                # A run makes many searches across two portals. Losing one of them to
+                # a transient failure should cost that query's results, not every
+                # result already gathered.
+                logger.warning(
+                    "doffin: search %r page %d failed: %s", search_string, page, exc
+                )
+                return
             hits = payload.get("hits") or []
             if not hits:
                 return

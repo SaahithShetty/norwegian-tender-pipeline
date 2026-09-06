@@ -28,9 +28,10 @@ from .base import Match, searchable_text
 # either side of that change use different codes for the same substance, so both are
 # searched.
 _RETIRED_ATC: Final[dict[str, tuple[str, ...]]] = {
-    "L01EK01": ("L01EX07",),
-    "L01EG02": ("L01XE10",),
-    "L04AX04": ("L04AX04",),
+    "L01EK01": ("L01EX07",),  # axitinib, reclassified in the 2021 revision
+    "L01EG02": ("L01XE10",),  # everolimus, reclassified in the 2021 revision
+    # Anagrelide (L01XX35), lenalidomide (L04AX04) and paliperidone (N05AX13) have
+    # not been reclassified, so they have no predecessor code to search for.
 }
 
 

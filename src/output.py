@@ -54,7 +54,9 @@ def build_row(notice: SourceNotice, match: Match) -> TenderRow:
         estimatedValue=notice.estimated_value,
         awardedValue=notice.awarded_value,
         awardedSupplier=clean_text(notice.awarded_supplier),
-        currency=notice.currency or ("NOK" if notice.estimated_value else None),
+        # No "NOK" fallback: a currency the source did not state would be an invented
+        # value, even though NOK is overwhelmingly likely for a Norwegian tender.
+        currency=notice.currency,
         noticeType=clean_text(notice.notice_type),
         status=notice.lifecycle.value,
         publicationDate=parse_date(notice.publication_date),

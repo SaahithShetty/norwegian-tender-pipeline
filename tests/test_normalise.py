@@ -72,3 +72,14 @@ def test_strength_and_pack_extraction(
 ) -> None:
     assert extract_strength(text) == strength
     assert extract_pack_size(text) == pack
+
+
+def test_strength_extraction_must_not_run_on_notice_titles() -> None:
+    """Documents why these are not wired into the CSV.
+
+    This is a real Doffin title. "2407 g" is a tender code, not a 2407-gram dose, so
+    applying strength extraction to titles would write a fabricated value into the
+    output. The extractors are for annex product strings only.
+    """
+    title = "2407 g og j onkologi ikke patenterte legemidler"
+    assert extract_strength(title) == "2407 g"  # plausible-looking, and wrong

@@ -108,7 +108,18 @@ def clean_text(value: Any) -> str | None:
 
 
 def extract_strength(text: str | None) -> str | None:
-    """Pull a dose strength such as "5 mg" or "0,5 mg/ml" out of a product string."""
+    """Pull a dose strength such as "5 mg" or "0,5 mg/ml" out of a product string.
+
+    Intended for pack-level rows parsed out of tender annexes, where strings look
+    like "Lenalidomid 5 mg kapsler, 21 stk".
+
+    **Deliberately not applied to notice titles.** Norwegian tender titles carry
+    codes, not product descriptions, and running this over them produces false
+    positives: the real title "2407 g og j onkologi ikke patenterte legemidler"
+    yields a strength of "2407 g", which is a tender number, not a dose. Since the
+    annexes are not reachable without a supplier account, this currently has no live
+    caller - it is kept, with this warning, for when they are.
+    """
     if not text:
         return None
     match = re.search(
@@ -120,7 +131,10 @@ def extract_strength(text: str | None) -> str | None:
 
 
 def extract_pack_size(text: str | None) -> str | None:
-    """Pull a pack count such as "56 stk" or "x 30" out of a product string."""
+    """Pull a pack count such as "56 stk" or "x 30" out of a product string.
+
+    Same caveat as `extract_strength`: annex product strings only, never titles.
+    """
     if not text:
         return None
     match = re.search(r"\b(\d+)\s*(?:stk|stykk|tabletter|kapsler)\b", text, re.IGNORECASE)
