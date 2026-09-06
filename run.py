@@ -8,6 +8,7 @@ import logging
 import sys
 from pathlib import Path
 
+from src.analysis.charts import build_all
 from src.config import OUTPUT_DIR
 from src.http import HttpClient
 from src.pipeline import Pipeline, summarise_run
@@ -29,6 +30,9 @@ def main() -> int:
     parser.add_argument(
         "--verbose", "-v", action="store_true", help="log every request"
     )
+    parser.add_argument(
+        "--no-charts", action="store_true", help="skip rendering the visualisations"
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -45,6 +49,10 @@ def main() -> int:
     print(summarise_run(rows, report))
     print()
     print(f"CSV written to {args.output}")
+
+    if not args.no_charts:
+        charts = build_all(args.output, args.output.parent / "charts")
+        print(f"charts written to {args.output.parent / 'charts'} ({len(charts)} files)")
     return 0
 
 
