@@ -5,7 +5,7 @@ Anagrelide, Paliperidone** — from Norwegian public procurement sources, and tu
 into a bid recommendation.
 
 Output: **44 rows** in `output/output.csv`, four charts in `output/charts/`.
-**26 of 28 columns populated.**
+**All 28 columns populated.**
 
 ---
 
@@ -199,42 +199,69 @@ but values are taken, never summed, since notices restate the same figure.
 
 ---
 
-## What the CSV does and does not contain
+## What the CSV contains
 
-**26 of 28 columns carry data.** The two that do not are empty for reasons I checked
-against the wider dataset rather than inferred from our five molecules:
+**All 28 columns carry data.** Coverage varies by column, and that variation is itself
+the answer to "which fields do the sources genuinely support":
 
-| column | why empty |
-|---|---|
-| `awardedValue` | Our molecules' award notices publish no value. This is **not** a blanket rule: of 100 Norwegian pharmaceutical award notices sampled, **81 do publish** one. So the absence is specific to these tenders, not a property of Norwegian procurement. |
-| `awardedSupplier` | **0 of 50** Norwegian pharmaceutical award notices populate any winner field — `winner-name`, `winner-identifier`, `organisation-name-tenderer` and three others were all checked and all empty. The winner is systematically not published in structured form. |
+| column | rows | source |
+|---|---|---|
+| `noticeId`, `title`, `buyer`, `country`, `status`, `noticeType`, `publicationDate`, `sourceDocument`, `sourceUrl`, and the five molecule columns | 44/44 | notice payloads |
+| `estimatedValue` | 35/44 | Doffin `core.estimatedValue`, else the value stated in the notice text |
+| `tenderRef` | 31/44 | the buyer's internal reference |
+| `procedureType` | 19/44 | eForm / TED, casing normalised across the two |
+| `contractStart` | 16/44 | eForm / TED |
+| `supplier` | 7/44 | annex supplier, or the awarded party |
+| `itemNumber`, `productName`, `strength`, `packSize`, `packsSoldLast12m` | 4/44 | LIS 2207 price annex |
+| `awardedSupplier` | 3/44 | Doffin `awardedNames` |
+| `maxPrice` | 3/44 | regulated price register, joined on item number |
+| `awardedValue` | 1/44 | eForm "Verdien av alle kontrakter tildelt i denne prosedyren" |
 
-### maxPrice: sourced from a second document, not from the tender
+Low coverage is not the same as a missing column. Only three of these tenders have
+reached award, so three awarded suppliers is complete, not partial. One pack (Inlyta
+3 mg) has no current regulated price and keeps an empty `maxPrice` rather than a value
+interpolated from the neighbouring strengths.
 
-`maxPrice` means the *regulated maximum* a pharmacy may pay, which is set by the
-medicines agency. The tender annex cannot supply it — its price column (`TILBUDT GIP`)
-is what a **supplier offers** when bidding, empty in all 196 rows because the file is a
-blank template, and a different quantity in any case.
+### Three columns took a second look
 
-The agency publishes the register itself as a free download:
+Each of these I first recorded as unobtainable, and each turned out to be wrong. They
+are worth stating plainly because the mistake in every case was concluding from one
+source instead of checking a second.
+
+**`maxPrice`** — the tender annex genuinely cannot supply it: its price column is what
+a *supplier offers* when bidding, blank in all 196 rows, and a different quantity from
+the buyer's ceiling. But the medicines agency publishes the regulated register as a
+free 9 811-row download, keyed by the same `Varenummer` the annex lists:
 
 ```
 https://www.dmp.no/offentlig-finansiering/pris-pa-legemidler/maksimalpris
-  -> legemiddelpriser-2026-09-03.xlsx    9 811 packs, no authentication
+  -> legemiddelpriser-2026-09-03.xlsx      no authentication
 ```
 
-It is keyed by `Varenummer`, the same item number the annex lists, so the join is
-exact rather than approximate — e.g. Inlyta 5 mg (varenr 599010) → **32 845,79 NOK**
-maximum AIP. Hospital tenders are denominated in AIP ("i maksimal AIP"), so AIP is the
-figure used rather than the retail AUP the register also carries.
+Inlyta 5 mg (varenr 599010) → **32 845,79 NOK** maximum AIP. AIP is used rather than
+the retail AUP the register also carries, because hospital tenders are denominated in
+AIP ("i maksimal AIP"); conflating them would overstate the ceiling by about 28%.
 
-One pack, Inlyta 3 mg, is absent from the register and keeps an empty `maxPrice`. That
-is the correct outcome: the pack exists in the tender but has no current regulated
-price, and inventing one by interpolating from the 1 mg and 5 mg strengths would be
-exactly the fabrication the brief warns about.
+**`awardedSupplier`** — TED's structured winner fields are empty for Norwegian
+notices: `winner-name`, `winner-identifier`, `organisation-name-tenderer` and three
+others were checked, **0 of 50 populated**. Concluding "not published" from that was
+wrong. **Doffin publishes it in `awardedNames`, 20 of 20** on the award notices
+sampled. Hence Paliperidone's direct awards resolve to `JANSSEN-CILAG AS` and
+`Nordic Pill AB`, and an axitinib add-on contract to `BeiGene Sweden AB`.
 
-Each pack row's `sourceDocument` names both documents it draws on, so any value can be
-traced to the file it came from.
+**`awardedValue`** — published in the eForm, not as a top-level field, under
+*"Verdien av alle kontrakter tildelt i denne prosedyren"*. Only labels meaning **what
+was awarded** are read; a framework's *maximum* or *estimated* value is a ceiling, and
+recording one as the other would overstate every award. Extracting it also exposed a
+parser bug: the eForm renders amounts in the English convention (`120,000,000`) while
+Norwegian notices use `1 234,56`, so treating a comma as a decimal point silently
+discarded these values. Both conventions are now handled.
+
+**Price disclosure is not uniform.** Of 100 Norwegian pharmaceutical award notices
+sampled, 81 publish a value — so this is not a blanket confidentiality rule. Among
+*our five molecules*, only one award publishes one. The absence is specific to these
+tenders rather than a property of Norwegian procurement, which is a narrower and more
+useful claim than the one I started with.
 
 ---
 

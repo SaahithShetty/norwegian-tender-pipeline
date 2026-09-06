@@ -61,12 +61,16 @@ def parse_number(value: Any) -> float | None:
         return None
     number = match.group(0)
 
-    # Decide which separator is decimal. Norwegian uses a comma; a dot appearing with
-    # exactly three trailing digits is a thousands separator, not a decimal point.
-    if "," in number:
-        number = number.replace(".", "").replace(",", ".")
+    # Decide which separator is decimal. Norwegian writes "1 234,56", but Doffin's
+    # eForm renders amounts in the English convention ("120,000,000"), so a comma is
+    # not always a decimal point and assuming it is silently discards those values.
+    # A separator followed by exactly three digits, repeated, is a thousands grouping.
+    if re.fullmatch(r"-?\d{1,3}(?:,\d{3})+", number):
+        number = number.replace(",", "")
     elif re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", number):
         number = number.replace(".", "")
+    elif "," in number:
+        number = number.replace(".", "").replace(",", ".")
 
     try:
         return float(number) * multiplier

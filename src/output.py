@@ -63,10 +63,23 @@ def build_row(notice: SourceNotice, match: Match) -> TenderRow:
         status=notice.lifecycle.value,
         publicationDate=parse_date(notice.publication_date),
         contractStart=parse_date(notice.contract_start),
-        procedureType=clean_text(notice.procedure_type),
+        # Doffin writes "Open", TED writes "open" for the same procedure. Casing is
+        # normalised so the column is consistent across sources, as the brief asks.
+        procedureType=_normalise_procedure(notice.procedure_type),
         sourceDocument=clean_text(notice.title),
         sourceUrl=notice.source_url,
     )
+
+
+def _normalise_procedure(value: str | None) -> str | None:
+    """Lower-case the procedure type so the two portals agree.
+
+    Only casing is changed. TED also emits bare numeric codes for older notices
+    (procedure-type "9"); those are passed through untouched rather than guessed at,
+    since mapping a code to a name without the codelist would be inventing a value.
+    """
+    text = clean_text(value)
+    return text.lower() if text else None
 
 
 def build_pack_rows(

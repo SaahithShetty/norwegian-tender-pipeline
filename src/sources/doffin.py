@@ -226,6 +226,31 @@ class DoffinSource:
         notice.description = detail.get("description") or notice.description
         if notice.estimated_value is None:
             notice.estimated_value = self._value_from_description(notice.description)
+
+        # Doffin names the winner in `awardedNames`, which TED's structured winner
+        # fields do not carry for Norwegian notices - checking only TED would have
+        # concluded, wrongly, that the winner is never published.
+        awarded = [name for name in (detail.get("awardedNames") or []) if name]
+        if awarded:
+            # A framework agreement can be awarded to several suppliers; all are
+            # listed rather than silently keeping the first.
+            notice.awarded_supplier = "; ".join(str(name).strip() for name in awarded)
+
+        # `core.estimatedValue` is a structured amount with its own currency, and is
+        # more reliable than the figure quoted in the description prose.
+        core_value = (detail.get("core") or {}).get("estimatedValue")
+        if isinstance(core_value, dict):
+            amount = parse_number(core_value.get("amount"))
+            if amount is not None:
+                notice.estimated_value = amount
+                notice.currency = core_value.get("code") or notice.currency
+
+        # The awarded total is published in the eForm rather than as a top-level
+        # field, under "Verdien av alle kontrakter tildelt i denne prosedyren"
+        # (the value of all contracts awarded in this procedure).
+        awarded_value = _awarded_value(eform_values)
+        if awarded_value is not None:
+            notice.awarded_value = awarded_value
         notice.contract_start = _first_date(eform_values, ("Start date", "Duration start date"))
         internal_ref = eform_values.get("Internal identifier")
         if internal_ref:
@@ -260,6 +285,26 @@ def _flatten_eform(sections: list[dict[str, Any]]) -> dict[str, str]:
 
     walk(sections)
     return out
+
+
+# eForm labels carrying the awarded total, most specific first. Only labels that mean
+# "what was actually awarded" are read: a framework's *maximum* or *estimated* value is
+# a ceiling, not an outcome, and recording one as the other would overstate every award.
+_AWARDED_VALUE_LABELS: Final[tuple[str, ...]] = (
+    "Verdien av alle kontrakter tildelt i denne prosedyren",
+    "Verdien av resultatet",
+)
+
+
+def _awarded_value(eform_values: dict[str, str]) -> float | None:
+    """Read the awarded total from the eForm, if the notice publishes one."""
+    for label in _AWARDED_VALUE_LABELS:
+        for key, value in eform_values.items():
+            if key.startswith(label):
+                amount = parse_number(value)
+                if amount is not None:
+                    return amount
+    return None
 
 
 def _first_date(values: dict[str, str], keys: tuple[str, ...]) -> str | None:

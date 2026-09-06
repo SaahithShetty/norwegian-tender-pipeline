@@ -23,6 +23,11 @@ from src.normalise import (
         ("kr 1 500,50", 1_500.50),
         ("ca. 320 millioner kroner", 320_000_000.0),
         ("3 200 MNOK", 3_200_000_000.0),
+        # Doffin's eForm renders amounts in the English convention, so a comma is not
+        # always a decimal separator. Treating it as one silently discarded awarded
+        # values entirely.
+        ("120,000,000", 120_000_000.0),
+        ("Norwegian krone (120,000,000)", 120_000_000.0),
         (14671946, 14_671_946.0),
     ],
 )
