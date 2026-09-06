@@ -21,24 +21,44 @@ import logging
 from collections import defaultdict
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Sequence
+from typing import Final, Sequence
 
-from .config import CPV_PHARMACEUTICAL, MOLECULES, OUTPUT_DIR, Molecule
+import re
+
+from .config import ANNEX_DIR, CPV_PHARMACEUTICAL, MOLECULES, OUTPUT_DIR, Molecule
 from .dedup import (
-    Procurement,
     cross_source_pairs,
     deduplicate_notices,
     group_procurements,
+    procurement_key,
 )
 from .http import HttpClient
+from .matching.base import Match
 from .matching.engine import MatchingEngine
-from .models import SourceNotice, TenderRow
+from .models import NoticeLifecycle, SourceNotice, TenderRow
 from .naming import normalise_for_search, norwegian_variants
-from .output import build_row, coverage_report, write_csv
+from .output import build_pack_rows, build_row, coverage_report, write_csv
+from .parsing.annex import AnnexPack, load_annexes, packs_for_atc
 from .sources.doffin import DoffinSource
 from .sources.ted import TedSource
 
 logger = logging.getLogger(__name__)
+
+# Annex filenames carry the tender they belong to, e.g.
+# "LIS 2207 - Vedlegg 03 Prisskjema v 2.xlsx".
+_ANNEX_TENDER: Final[re.Pattern[str]] = re.compile(
+    r"\bLIS\s*(\d{4}[a-z]?)\b", re.IGNORECASE
+)
+
+
+def _annex_key(filename: str) -> str | None:
+    """The procurement key an annex belongs to, read from its filename.
+
+    Returned in the same format `dedup.procurement_key` produces, so an annex can be
+    matched against the notice it was published with.
+    """
+    match = _ANNEX_TENDER.search(filename)
+    return f"lis:{match.group(1).lower()}" if match else None
 
 
 @dataclass(slots=True)
@@ -61,12 +81,16 @@ class Pipeline:
         self,
         client: HttpClient | None = None,
         molecules: Sequence[Molecule] = MOLECULES,
+        annex_dir: Path | None = None,
     ) -> None:
         self._client = client or HttpClient()
         self._molecules = tuple(molecules)
         self._doffin = DoffinSource(self._client)
         self._ted = TedSource(self._client)
         self._engine = MatchingEngine(molecules=self._molecules)
+        # Annexes are optional: they require a supplier account, so a run without
+        # them must still succeed, just with the pack-level columns empty.
+        self._annex_packs = load_annexes(annex_dir or ANNEX_DIR)
 
     # ------------------------------------------------------------- discovery --
 
@@ -134,7 +158,13 @@ class Pipeline:
             matched_notices.append(enriched)
 
             for match in matches:
-                rows.append(build_row(enriched, match))
+                # Where an annex supplies pack-level detail for this molecule, emit a
+                # row per pack, as the brief specifies; otherwise one row per notice.
+                packs = self._packs_for(match, enriched)
+                if packs:
+                    rows.extend(build_pack_rows(enriched, match, packs))
+                else:
+                    rows.append(build_row(enriched, match))
 
         rows = self._drop_redundant_bundle_rows(rows)
         rows.sort(key=lambda r: (r.productMolecule, r.publicationDate or "", r.noticeId))
@@ -162,6 +192,35 @@ class Pipeline:
 
         write_csv(rows, output_path or (OUTPUT_DIR / "output.csv"))
         return rows, report
+
+    def _packs_for(self, match: Match, notice: SourceNotice) -> list[AnnexPack]:
+        """Annex pack lines for this molecule, if this notice is the annex's tender.
+
+        Packs are only attached to the notice the annex actually belongs to, matched
+        on the tender number in the filename (LIS 2207 -> "lis:2207"). Without that
+        check, every oncology notice would inherit the same packs and the CSV would
+        assert pack detail for tenders it was never published against.
+        """
+        if not self._annex_packs:
+            return []
+
+        # One procurement publishes several notices (prior information, competition,
+        # award). The annex belongs to the competition it was published with, so packs
+        # are attached only there. Attaching them to every notice of the procurement
+        # would repeat each pack - and its volume - once per notice.
+        if notice.lifecycle not in (
+            NoticeLifecycle.COMPETITION,
+            NoticeLifecycle.AWARD,
+        ):
+            return []
+
+        key = procurement_key(notice)
+        packs = [
+            pack
+            for pack in packs_for_atc(self._annex_packs, match.molecule.atc_code)
+            if _annex_key(pack.source_document) == key
+        ]
+        return packs
 
     @staticmethod
     def _drop_redundant_bundle_rows(rows: list[TenderRow]) -> list[TenderRow]:

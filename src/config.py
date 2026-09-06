@@ -11,6 +11,10 @@ from typing import Final
 
 PROJECT_ROOT: Final[Path] = Path(__file__).resolve().parent.parent
 CACHE_DIR: Final[Path] = PROJECT_ROOT / "data" / "cache"
+# Tender annexes require a supplier account to download, so they are read from a
+# local directory rather than fetched. A run without them succeeds, with the
+# pack-level columns left empty.
+ANNEX_DIR: Final[Path] = PROJECT_ROOT / "data" / "manual"
 OUTPUT_DIR: Final[Path] = PROJECT_ROOT / "output"
 
 # Polite crawling. The brief asks for 1-2s rate limiting and a meaningful User-Agent.

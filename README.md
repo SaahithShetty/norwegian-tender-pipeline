@@ -4,7 +4,7 @@ Extracts tender data for five molecules — **Axitinib, Everolimus, Lenalidomide
 Anagrelide, Paliperidone** — from Norwegian public procurement sources, and turns it
 into a bid recommendation.
 
-Output: **41 rows** in `output/output.csv`, four charts in `output/charts/`.
+Output: **44 rows** in `output/output.csv`, four charts in `output/charts/`.
 
 ---
 
@@ -16,7 +16,7 @@ pip install -r requirements.txt
 
 python run.py                 # writes output/output.csv + output/charts/
 python run.py --no-cache      # bypass the local cache and re-fetch
-python -m pytest tests/ -q    # 53 tests
+python -m pytest tests/ -q    # 59 tests
 ```
 
 A first run takes roughly 12 minutes: requests are deliberately spaced 1.5 s apart.
@@ -66,30 +66,37 @@ name returns a 400 whose body **enumerates all 1 830 valid field names**. I used
 to validate field names programmatically instead of guessing — `received-tender-count`,
 for instance, does not exist, while `total-value` and `winner-name` do.
 
-### Attached documents — reached, then walled
+### Attached documents — reached, and parsed
 
 Tender annexes are hosted on Mercell, linked from each notice's `competitionDocsUrl`.
-The **document list is public** — I read all 12 filenames for LIS 2207 Onkologi,
-including `Vedlegg 02 Kravspesifikasjon.xlsx` (the molecule list) and
-`Vedlegg 03 Prisskjema v 2.xlsx` (the price form, which is where item numbers,
-strengths, pack sizes, max prices and 12-month volumes live).
+The **document list is public** — all 12 filenames for LIS 2207 Onkologi are readable
+without an account, including `Vedlegg 02 Kravspesifikasjon.xlsx` (the molecule list)
+and `Vedlegg 03 Prisskjema v 2.xlsx` (the price form).
 
-The **files themselves return HTTP 403**. Four escalating attempts, all failed:
+The **file endpoint is protected by a Cloudflare interactive challenge**. A plain
+request returns HTTP 403 with *"Just a moment… Enable JavaScript and cookies to
+continue"*. What does and does not get through:
 
 | attempt | result |
 |---|---|
 | `curl` with browser User-Agent and referer | 403 |
 | `curl` with the full session cookie jar | 403 |
-| `fetch()` **inside real Chrome**, same origin, `credentials:'include'` | 403 |
-| three different document ids | 403, uniformly |
+| CDP-driven browser: click by element reference | 403 |
+| CDP-driven browser: navigate straight to the href | 403 |
+| CDP-driven browser: `fetch()` in-page, `credentials:'include'` | 403 |
+| **an ordinary Chrome window, person clears the check** | **file downloads** |
 
-The session was never authenticated — the page still offered "Sign in", and the
-`.ASPXAUTH` cookie present was an anonymous visitor token. So this is **Mercell
-account entitlement**, not a bot wall; my first diagnosis (Cloudflare TLS
-fingerprinting) was wrong and the in-Chrome test is what disproved it.
+So this is an anti-automation control, not an authentication wall — cookies and login
+state are not what decides it. My first diagnosis was wrong twice before the in-browser
+test settled it, which is why the table is here rather than a one-line claim.
 
-The brief lists "register as a supplier" under *You do not need to*, so I recorded the
-URLs and moved on rather than pursuing credentials.
+That leaves an interactive route, which `run.py --fetch-annexes` implements: it opens
+the tender page, waits for a person to clear the verification, then downloads. It is
+opt-in and never runs unattended.
+
+**The annex is committed to this repository** (`data/manual/`), so `python run.py`
+reproduces the full result — pack-level rows included — with no browser and no account.
+It is a public procurement document from a public tender.
 
 ### Dead ends
 
@@ -117,23 +124,36 @@ The other four are procured in **single-molecule tenders** (`LIS 2234 Lenalidomi
 whose notices name **no individual molecules at all**. The molecule list lives in
 *"vedlegg 2 (Kravspesifikasjon)"*, the annex behind the Mercell wall.
 
-So Axitinib's rows are emitted at notice level against the oncology frameworks, with
-`moleculeDetected=false` and `detectionMethod=therapeutic-area-bundle`. The inference
-is visible in the data rather than hidden inside a boolean. **I did not fabricate
-pack rows for it.**
+The annex confirms it. `Vedlegg 03 Prisskjema` lists **axitinib as Inlyta**, four packs
+(1/3/5/7 mg, 56 tablets, Pfizer Norge AS), with historical consumption of 179 / 316 /
+634 / 46 packs. Axitinib is in Norwegian procurement — as a lot inside an oncology
+bundle, never as a tender of its own.
+
+Rows against the oncology frameworks themselves are still marked
+`moleculeDetected=false` with `detectionMethod=therapeutic-area-bundle`, because the
+notice text does not name the molecule; the inference stays visible in the data.
+
+**A bug the real data caught.** Axitinib is often described as having moved from ATC
+`L01EX07` to `L01EK01`, and the matcher originally searched both. The annex shows
+`L01EX07` now denotes **cabozantinib** (Cabometyx, Cometriq, IPSEN AB) — the code was
+*reassigned*, not retired. Searching it would have attributed another manufacturer's
+packs to axitinib. The alias was removed and a test pins the behaviour.
 
 ---
 
 ## Identifying molecules four ways
 
-Name matching alone would have found **11 of 41 rows**.
+Name matching alone would have found **11 of 44 rows**.
 
 | method | rows | what it catches |
 |---|---|---|
-| `therapeutic-area-bundle` | 28 | molecules with no tender of their own |
+| `therapeutic-area-bundle` | 31 | molecules with no tender of their own |
 | `name-norwegian` | 8 | `Lenalidomid`, `anagrelid`, `paliperidon` |
 | `name-english` | 3 | TED's English records of the same tenders |
 | `atc-code` | 2 | notices citing `N05AX13` and never naming the drug |
+
+Of the 44 rows, **4 are pack-level** (axitinib, from the LIS 2207 annex) and the rest
+are notice-level.
 
 **Norwegian spellings are derived by rule, not hard-coded.** Norwegian INN follows a
 systematic orthography, so `src/naming.py` implements the transformation
@@ -180,22 +200,26 @@ but values are taken, never summed, since notices restate the same figure.
 
 ## What the CSV does and does not contain
 
-19 of 28 columns carry data. The empty ones are empty for stated reasons:
+**25 of 28 columns carry data.** The three that do not are empty for stated reasons,
+not for lack of trying:
 
 | column | why empty |
 |---|---|
-| `itemNumber`, `strength`, `packSize`, `maxPrice`, `packsSoldLast12m` | only in `Vedlegg 03 Prisskjema v 2.xlsx`, behind the Mercell account wall |
-| `awardedValue`, `awardedSupplier` | **not published** — see below |
-| `productName`, `supplier` | notices name the substance, not brands or suppliers |
+| `maxPrice` | The Prisskjema is the **blank bidding template** suppliers fill in. Its `TILBUDT GIP` (offered price) column is empty in all 993 rows, so there is no price in the document to read. |
+| `awardedValue`, `awardedSupplier` | **Not published.** 0 of 3 award notices disclose a value. |
+
+The pack-level columns — `itemNumber`, `productName`, `strength`, `packSize`,
+`supplier`, `packsSoldLast12m` — are populated from the annex for the 4 axitinib pack
+rows, and empty on notice-level rows where no annex applies.
 
 **Price disclosure is not uniform, and that is a finding rather than a gap.** Of the
-award notices retrieved, **0 of 3 publish a value**, while 9 of 22 competition notices
+award notices retrieved, **0 of 3 publish a value**, while 12 of 25 competition rows
 do. The clearest case is one tender: `LIS 2234 Lenalidomid` publishes 320 MNOK on its
 contract notice, and its own award notice publishes nothing. A bidder cannot see what
 the incumbent charged.
 
-I left these cells empty rather than substituting list prices. An empty cell is
-information; an invented one would not survive checking.
+Nothing is substituted for a missing value. An empty cell is information; an invented
+one would not survive checking.
 
 ---
 
@@ -208,7 +232,7 @@ directly addressable. Headline value and addressable value are not the same numb
 
 **2. `price-disclosure.png` — how much of the market is priced in public.**
 Award notices, the one place a bidder would look for the incumbent's price, are where
-value is least often published (0/3). Any bid model here is built on estimates, not
+value is least often published (0 of 3). Any bid model here is built on estimates, not
 on observed clearing prices.
 
 **3. `detection-method.png` — what a name-only pipeline would have missed.**
@@ -253,10 +277,10 @@ incumbent's position is being re-tested rather than rolled over.
 
 **What would change my mind:**
 
-- **The `2601c` annex.** If the Kravspesifikasjon shows volume concentrated in a
+- **The `2601c` annex.** If its Kravspesifikasjon shows volume concentrated in a
   depot formulation with device or supply-chain requirements we cannot meet, the open
-  door is not one we can walk through. This is the single most valuable missing piece,
-  and it needs a Mercell supplier account.
+  door is not one we can walk through. The LIS 2207 annex is parsed here; 2601c's was
+  not retrieved, and it is the single most valuable missing piece.
 - **Award value on the 2022 contracts.** They are undisclosed, so I cannot see the
   price to beat. If the direct awards were priced near marginal cost, the margin may
   not justify the bid.
@@ -297,7 +321,9 @@ layer, and the row schema exists in exactly one place.
 
 **Time spent:** ~6 hours, roughly half on source discovery.
 
-**What I would do next**, in order: parse the annexes (the pack-level columns are all
-blocked on one file); add the Norwegian medicine register for ATC and item numbers via
-its bulk download rather than its WebForms UI; and widen the CPV sweep across more
-years, which the architecture already supports but the time budget did not.
+**What I would do next**, in order: retrieve the `2601c paliperidon` annex, since the
+recommendation turns on what is inside it; parse `Vedlegg 02 Kravspesifikasjon` as well
+as the price form, which would let therapeutic-bundle rows be confirmed rather than
+inferred; add the Norwegian medicine register for regulated max prices via a bulk
+download rather than its WebForms UI; and widen the CPV sweep across more years, which
+the architecture supports but the time budget did not.

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import csv
 import logging
+from dataclasses import replace
 from pathlib import Path
 from typing import Iterable, Sequence
 
@@ -21,6 +22,7 @@ from .matching.base import Match
 from .matching.engine import detected_flag
 from .models import SourceNotice, TenderRow
 from .normalise import clean_text, parse_date
+from .parsing.annex import AnnexPack
 
 logger = logging.getLogger(__name__)
 
@@ -65,6 +67,36 @@ def build_row(notice: SourceNotice, match: Match) -> TenderRow:
         sourceDocument=clean_text(notice.title),
         sourceUrl=notice.source_url,
     )
+
+
+def build_pack_rows(
+    notice: SourceNotice, match: Match, packs: Sequence[AnnexPack]
+) -> list[TenderRow]:
+    """Expand one notice into a row per pack, using annex detail.
+
+    The brief asks for one row per molecule per pack "where pack-level detail
+    exists", falling back to one row per notice otherwise. This is the former case.
+
+    `maxPrice` stays empty even here: the annex is the blank bidding template that
+    suppliers fill in, so its price column is empty in every row. The volume column
+    is populated, because that is the buyer's own published historical consumption.
+    """
+    base = build_row(notice, match)
+    rows: list[TenderRow] = []
+    for pack in packs:
+        row = replace(
+            base,
+            itemNumber=pack.item_number,
+            productName=pack.product_name,
+            strength=pack.strength,
+            packSize=pack.pack_size,
+            supplier=pack.supplier,
+            packsSoldLast12m=pack.packs_last_12m,
+            maxPrice=pack.offered_price,
+            sourceDocument=pack.source_document,
+        )
+        rows.append(row)
+    return rows
 
 
 def write_csv(rows: Sequence[TenderRow], path: Path) -> Path:
