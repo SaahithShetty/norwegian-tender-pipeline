@@ -11,9 +11,12 @@ pipeline intact, so folding happens only inside matching, never on output.
 
 from __future__ import annotations
 
+import logging
 import re
 from datetime import date, datetime
 from typing import Any, Final
+
+logger = logging.getLogger(__name__)
 
 # Space variants used as thousands separators: ASCII, non-breaking, narrow no-break.
 _SPACES: Final[str] = "    "
@@ -64,8 +67,21 @@ def parse_number(value: Any) -> float | None:
     # Decide which separator is decimal. Norwegian writes "1 234,56", but Doffin's
     # eForm renders amounts in the English convention ("120,000,000"), so a comma is
     # not always a decimal point and assuming it is silently discards those values.
-    # A separator followed by exactly three digits, repeated, is a thousands grouping.
-    if re.fullmatch(r"-?\d{1,3}(?:,\d{3})+", number):
+    #
+    # A single group of exactly three digits after one comma - "1,500" - is genuinely
+    # ambiguous: 1500 in English, 1.5 in Norwegian. Guessing wrong is a 1000x error on
+    # a price, so it is refused rather than resolved by coin flip. (No such value
+    # appears in the current sources; both write prices unambiguously.) Two or more
+    # groups, "1,234,567", can only be thousands separators, so those are safe.
+    if re.fullmatch(r"-?\d{1,3},\d{3}", number):
+        logger.warning(
+            "refusing ambiguous number %r: could be %s or %s depending on locale",
+            text,
+            number.replace(",", ""),
+            number.replace(",", "."),
+        )
+        return None
+    if re.fullmatch(r"-?\d{1,3}(?:,\d{3}){2,}", number):
         number = number.replace(",", "")
     elif re.fullmatch(r"-?\d{1,3}(?:\.\d{3})+", number):
         number = number.replace(".", "")

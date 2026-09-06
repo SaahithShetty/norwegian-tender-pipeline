@@ -35,6 +35,17 @@ def test_parse_number(raw: object, expected: float) -> None:
     assert parse_number(raw) == expected
 
 
+@pytest.mark.parametrize("raw", ["1,500", "1,234", "12,345"])
+def test_locale_ambiguous_numbers_are_refused(raw: str) -> None:
+    """"1,500" is 1500 in English and 1.5 in Norwegian.
+
+    Both sources appear elsewhere in this pipeline, so guessing would be a 1000x
+    error on a price. Refusing leaves the cell empty, which the brief prefers to a
+    confident wrong number.
+    """
+    assert parse_number(raw) is None
+
+
 @pytest.mark.parametrize("raw", ["", "n/a", None, "ingen verdi"])
 def test_unparseable_numbers_are_none_not_zero(raw: object) -> None:
     """A missing price must stay missing; 0.0 would read as a real price of nothing."""
