@@ -86,3 +86,41 @@ def test_packs_are_selected_by_exact_atc_code(annex: Path) -> None:
 def test_missing_annex_directory_is_not_an_error(tmp_path: Path) -> None:
     """A reviewer without a supplier account must still get a complete run."""
     assert load_annexes(tmp_path / "does-not-exist") == []
+
+
+def test_pack_rows_never_carry_the_suppliers_offered_price(annex: Path) -> None:
+    """maxPrice means the buyer's regulated maximum, not a bid.
+
+    The annex column is TILBUDT GIP - what a supplier offers when bidding. Copying it
+    into maxPrice would misreport a bid as a price ceiling, so pack rows must leave
+    the column empty even if a future annex arrives with that column filled in.
+    """
+    from src.matching.base import Match
+    from src.models import DetectionMethod, SourceNotice
+    from src.config import MOLECULES_BY_NAME
+    from src.output import build_pack_rows
+    from src.parsing.annex import parse_annex, packs_for_atc
+
+    packs = list(packs_for_atc(parse_annex(annex), "L01EK01"))
+    # Simulate an annex whose price column *is* populated.
+    for pack in packs:
+        pack.offered_price = 1234.56
+
+    notice = SourceNotice(
+        notice_id="2022-324116",
+        title="LIS 2207 Onkologi",
+        source_url="https://example.test/1",
+        source_name="doffin",
+    )
+    match = Match(
+        molecule=MOLECULES_BY_NAME["axitinib"],
+        method=DetectionMethod.THERAPEUTIC_BUNDLE,
+        variant="Onkologi",
+        confidence=0.35,
+    )
+
+    rows = build_pack_rows(notice, match, packs)
+    assert rows, "expected a row per pack"
+    assert all(row.maxPrice is None for row in rows)
+    # The volume, by contrast, is the buyer's own published figure and is kept.
+    assert any(row.packsSoldLast12m for row in rows)

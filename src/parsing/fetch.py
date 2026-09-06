@@ -55,13 +55,25 @@ class BrowserUnavailable(RuntimeError):
 
 
 def _run(*args: str, timeout: int = 120) -> subprocess.CompletedProcess[str]:
-    return subprocess.run(  # noqa: S603 - fixed CLI, arguments are not user input
-        [_CLI, *args],
-        capture_output=True,
-        text=True,
-        timeout=timeout,
-        check=False,
-    )
+    """Invoke the browser CLI, turning a timeout into a failed result.
+
+    A hung browser is an ordinary outcome here, not an exceptional one: the whole
+    point of this module is that the site may not cooperate. Returning a non-zero
+    result lets each caller decide what to do, instead of unwinding the run.
+    """
+    try:
+        return subprocess.run(  # noqa: S603 - fixed CLI, args are not user input
+            [_CLI, *args],
+            capture_output=True,
+            text=True,
+            timeout=timeout,
+            check=False,
+        )
+    except subprocess.TimeoutExpired:
+        logger.warning("%s %s timed out after %ss", _CLI, args[0] if args else "", timeout)
+        return subprocess.CompletedProcess(
+            args=[_CLI, *args], returncode=124, stdout="", stderr="timed out"
+        )
 
 
 def browser_available() -> bool:
@@ -105,34 +117,50 @@ def fetch_annexes(
 
     destination.mkdir(parents=True, exist_ok=True)
     before = set(destination.glob("*.xlsx"))
+    downloaded: list[Path] = []
 
-    logger.info("opening %s", tender_url)
-    _run("open", tender_url, timeout=120)
-    time.sleep(5)
+    # try/finally, not a trailing close(): any _run may raise TimeoutExpired, and an
+    # early return would otherwise leave a browser process running after the pipeline
+    # has moved on.
+    try:
+        logger.info("opening %s", tender_url)
+        _run("open", tender_url, timeout=120)
+        time.sleep(5)
 
-    if _awaiting_challenge():
-        if not interactive:
-            logger.warning(
-                "Cloudflare challenge present and interactive=False; skipping fetch"
+        if _awaiting_challenge():
+            if not interactive:
+                logger.warning(
+                    "verification challenge present and interactive=False; skipping"
+                )
+                return []
+            print(
+                "\n  A browser window is open on the tender page.\n"
+                "  Clear the verification (and sign in if prompted), then leave it open.\n"
+                f"  Waiting up to {_CHALLENGE_TIMEOUT_SECONDS}s...\n"
             )
-            _run("close", "--all", timeout=30)
-            return []
-        print(
-            "\n  A browser window is open on the tender page.\n"
-            "  Clear the verification (and sign in if prompted), then leave it open.\n"
-            f"  Waiting up to {_CHALLENGE_TIMEOUT_SECONDS}s...\n"
-        )
-        if not _wait_for_challenge(_CHALLENGE_TIMEOUT_SECONDS):
-            logger.warning("challenge not cleared in time; skipping fetch")
-            _run("close", "--all", timeout=30)
-            return []
+            if not _wait_for_challenge(_CHALLENGE_TIMEOUT_SECONDS):
+                logger.warning("challenge not cleared in time; skipping fetch")
+                return []
 
-    downloaded = _download_price_forms(destination)
-    _run("close", "--all", timeout=30)
+        downloaded = _download_price_forms(destination)
+    finally:
+        _close_browser()
 
     new_files = sorted(set(destination.glob("*.xlsx")) - before)
     logger.info("fetched %d annex file(s)", len(new_files))
     return new_files or downloaded
+
+
+def _close_browser() -> None:
+    """Shut the browser session down, swallowing any failure.
+
+    Cleanup runs on the failure path too, where the CLI may itself be unresponsive;
+    an error closing the browser must not mask the original problem.
+    """
+    try:
+        _run("close", "--all", timeout=30)
+    except Exception as exc:  # noqa: BLE001 - cleanup must never raise
+        logger.debug("could not close browser session: %s", exc)
 
 
 def _wait_for_challenge(timeout_seconds: int) -> bool:

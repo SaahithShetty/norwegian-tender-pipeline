@@ -77,9 +77,13 @@ def build_pack_rows(
     The brief asks for one row per molecule per pack "where pack-level detail
     exists", falling back to one row per notice otherwise. This is the former case.
 
-    `maxPrice` stays empty even here: the annex is the blank bidding template that
-    suppliers fill in, so its price column is empty in every row. The volume column
-    is populated, because that is the buyer's own published historical consumption.
+    `maxPrice` is never populated from an annex, and that is a semantic decision
+    rather than an artefact of the current file being blank. The annex column is
+    `TILBUDT GIP` - the price a *supplier offers* when bidding. The CSV's `maxPrice`
+    means the *buyer's regulated maximum*. They are different quantities, so copying
+    one into the other would misreport a bid as a price ceiling even if the column
+    were populated. The volume column is populated, because that genuinely is the
+    buyer's own published historical consumption.
     """
     base = build_row(notice, match)
     rows: list[TenderRow] = []
@@ -92,7 +96,7 @@ def build_pack_rows(
             packSize=pack.pack_size,
             supplier=pack.supplier,
             packsSoldLast12m=pack.packs_last_12m,
-            maxPrice=pack.offered_price,
+            maxPrice=None,  # never the supplier's offered price - see docstring
             sourceDocument=pack.source_document,
         )
         rows.append(row)
