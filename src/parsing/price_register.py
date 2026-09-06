@@ -23,6 +23,7 @@ AIP" — so AIP is the figure used here.
 from __future__ import annotations
 
 import logging
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
@@ -39,7 +40,9 @@ REGISTER_PAGE: Final[str] = (
 )
 # The published file carries its date in the name; it is resolved from the page so a
 # newer edition is picked up without a code change.
-_ASSET_PATTERN: Final[str] = r'href="(/contentassets/[^"]*legemiddelpriser-[^"]*\.xlsx)"'
+_ASSET_PATTERN: Final[re.Pattern[str]] = re.compile(
+    r'href="(/contentassets/[^"]*legemiddelpriser-[^"]*\.xlsx)"'
+)
 _BASE: Final[str] = "https://www.dmp.no"
 
 # Header names as published, mapped to fields. Matched on text, not position.
@@ -93,15 +96,28 @@ def parse_price_register(path: Path) -> dict[str, RegulatedPrice]:
         logger.warning("could not open price register %s: %s", path.name, exc)
         return {}
 
-    sheet = workbook[workbook.sheetnames[0]]
-    located = _header_row(sheet)
-    if located is None:
-        logger.warning("price register %s: expected headers not found", path.name)
-        return {}
-    columns, header_index = located
+    # try/finally, not a close() at the end: read_only mode holds the file open, and
+    # the header check below returns early.
+    try:
+        sheet = workbook[workbook.sheetnames[0]]
+        located = _header_row(sheet)
+        if located is None:
+            logger.warning("price register %s: expected headers not found", path.name)
+            return {}
+        prices = _read_prices(sheet, *located, path)
+    finally:
+        workbook.close()
 
+    logger.info("parsed %d regulated prices from %s", len(prices), path.name)
+    return prices
+
+
+def _read_prices(
+    sheet: object, columns: dict[str, int], header_index: int, path: Path
+) -> dict[str, RegulatedPrice]:
+    """Read every price row below the header."""
     prices: dict[str, RegulatedPrice] = {}
-    for row in sheet.iter_rows(min_row=header_index + 1, values_only=True):
+    for row in sheet.iter_rows(min_row=header_index + 1, values_only=True):  # type: ignore[attr-defined]
         if not row:
             continue
 
@@ -126,7 +142,6 @@ def parse_price_register(path: Path) -> dict[str, RegulatedPrice]:
             source_document=path.name,
         )
 
-    logger.info("parsed %d regulated prices from %s", len(prices), path.name)
     return prices
 
 
@@ -136,8 +151,6 @@ def download_price_register(client: HttpClient, destination: Path) -> Path | Non
     Returns None rather than raising if the file cannot be retrieved, so the pipeline
     continues with `maxPrice` empty instead of failing.
     """
-    import re
-
     destination.mkdir(parents=True, exist_ok=True)
     try:
         page = client.get_bytes(REGISTER_PAGE)
@@ -147,7 +160,7 @@ def download_price_register(client: HttpClient, destination: Path) -> Path | Non
     if not page:
         return None
 
-    match = re.search(_ASSET_PATTERN, page.decode("utf-8", "replace"))
+    match = _ASSET_PATTERN.search(page.decode("utf-8", "replace"))
     if not match:
         logger.warning("no legemiddelpriser spreadsheet linked on %s", REGISTER_PAGE)
         return None

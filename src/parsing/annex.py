@@ -112,22 +112,36 @@ def parse_annex(path: Path) -> list[AnnexPack]:
         logger.warning("could not open annex %s: %s", path.name, exc)
         return []
 
-    if _PRICE_SHEET not in workbook.sheetnames:
-        logger.warning("annex %s has no %r sheet", path.name, _PRICE_SHEET)
-        return []
+    # try/finally, not a close() at the end: read_only mode holds the file open, and
+    # several paths below return early.
+    try:
+        if _PRICE_SHEET not in workbook.sheetnames:
+            logger.warning("annex %s has no %r sheet", path.name, _PRICE_SHEET)
+            return []
 
-    sheet = workbook[_PRICE_SHEET]
-    located = _header_map(sheet)
-    if located is None:
-        logger.warning("annex %s: no VARENR header found", path.name)
-        return []
-    columns, header_row = located
+        sheet = workbook[_PRICE_SHEET]
+        located = _header_map(sheet)
+        if located is None:
+            logger.warning("annex %s: no VARENR header found", path.name)
+            return []
+        columns, header_row = located
+        packs = _read_packs(sheet, columns, header_row, path)
+    finally:
+        workbook.close()
 
+    logger.info("parsed %d pack lines from %s", len(packs), path.name)
+    return packs
+
+
+def _read_packs(
+    sheet: object, columns: dict[str, int], header_row: int, path: Path
+) -> list[AnnexPack]:
+    """Read every pack row below the header."""
     packs: list[AnnexPack] = []
-    for row in range(header_row + 1, sheet.max_row + 1):
+    for row in range(header_row + 1, sheet.max_row + 1):  # type: ignore[attr-defined]
         def value(field: str) -> object:
             column = columns.get(field)
-            return sheet.cell(row, column).value if column else None
+            return sheet.cell(row, column).value if column else None  # type: ignore[attr-defined]
 
         item_number = _cell_text(value("item_number"))
         atc_code = _cell_text(value("atc_code"))
@@ -148,7 +162,6 @@ def parse_annex(path: Path) -> list[AnnexPack]:
             )
         )
 
-    logger.info("parsed %d pack lines from %s", len(packs), path.name)
     return packs
 
 
