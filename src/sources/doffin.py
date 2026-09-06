@@ -20,6 +20,7 @@ from typing import Any, Final, Iterator
 
 from ..http import HttpClient
 from ..models import NoticeLifecycle, SourceNotice
+from ..normalise import parse_number
 
 logger = logging.getLogger(__name__)
 
@@ -171,6 +172,36 @@ class DoffinSource:
 
     # -------------------------------------------------------------- enrichment --
 
+    @staticmethod
+    def _value_from_description(description: str | None) -> float | None:
+        """Recover a contract value stated in prose rather than in a value field.
+
+        Doffin's structured estimatedValue is usually null for these tenders, but the
+        description states the size in words, e.g.
+
+            "Det totale avtaleomfang er anslatt i maksimal AIP til
+             ca. 320 millioner kroner per ar"
+
+        This is the buyer's own published figure, not an inference, so reading it is
+        extraction rather than estimation. Only the phrase introduced by "anslatt"
+        (estimated) or "avtaleomfang" (contract scope) is read, so unrelated numbers
+        elsewhere in the text are ignored.
+        """
+        if not description:
+            return None
+        # The window cannot exclude "." because the figure is usually preceded by
+        # "ca." (circa); it excludes sentence ends by requiring no intervening
+        # digits, so the match stays anchored to the first amount after the cue word.
+        match = re.search(
+            r"(?:avtaleomfang|anslått|anslatt|verdi)\D{0,120}?"
+            r"(\d[\d\s.,]*?)\s*(millioner?|mill\.?|MNOK|milliarder?|mrd\.?)",
+            description,
+            re.IGNORECASE,
+        )
+        if not match:
+            return None
+        return parse_number(f"{match.group(1)} {match.group(2)}")
+
     def enrich(self, notice: SourceNotice) -> SourceNotice:
         """Fetch notice detail: internal reference, CPV codes, procedure, documents."""
         try:
@@ -184,6 +215,8 @@ class DoffinSource:
         notice.documents_url = detail.get("competitionDocsUrl")
         notice.procedure_type = eform_values.get("Type of procedure")
         notice.description = detail.get("description") or notice.description
+        if notice.estimated_value is None:
+            notice.estimated_value = self._value_from_description(notice.description)
         notice.contract_start = _first_date(eform_values, ("Start date", "Duration start date"))
         internal_ref = eform_values.get("Internal identifier")
         if internal_ref:
