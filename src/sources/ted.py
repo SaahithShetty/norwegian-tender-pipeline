@@ -32,6 +32,14 @@ NOTICE_HTML: Final[str] = "https://ted.europa.eu/en/notice"
 _SAFE_FIELDS: Final[tuple[str, ...]] = (
     "publication-number",
     "notice-title",
+    # `notice-title` is the OJ headline ("Norway-Vadso: Pharmaceutical products"),
+    # which is identical across every pharmaceutical tender and therefore useless for
+    # both matching and grouping. `title-proc` carries the descriptive title
+    # ("LIS 2234 Lenalidomide") and `internal-identifier-proc` the buyer's own
+    # reference, which is what links a TED record to its Doffin twin.
+    "title-proc",
+    "description-proc",
+    "internal-identifier-proc",
     "buyer-name",
     "publication-date",
     "notice-type",
@@ -126,12 +134,19 @@ class TedSource:
         if lifecycle is NoticeLifecycle.AWARD:
             estimated = None
 
+        # Prefer the descriptive procurement title over the generic OJ headline.
+        title = str(
+            _scalar(hit.get("title-proc")) or _scalar(hit.get("notice-title")) or ""
+        ).strip()
+
         return SourceNotice(
             notice_id=publication_number,
-            title=str(_scalar(hit.get("notice-title")) or "").strip(),
+            title=title,
             source_url=f"{NOTICE_HTML}/{publication_number}",
             source_name=self.name,
             buyer=_scalar(hit.get("buyer-name")),
+            description=_scalar(hit.get("description-proc")),
+            tender_ref=_scalar(hit.get("internal-identifier-proc")),
             notice_type=notice_type,
             lifecycle=lifecycle,
             publication_date=_iso_date(_scalar(hit.get("publication-date"))),
