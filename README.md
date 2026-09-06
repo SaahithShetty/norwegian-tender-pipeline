@@ -315,9 +315,30 @@ src/
   pipeline.py      orchestration
 ```
 
-Adding a portal means writing one file implementing `NoticeSource`. Adding a matching
-strategy means one file implementing `Matcher`. Neither requires touching the CSV
-layer, and the row schema exists in exactly one place.
+The seven stages the brief asks to see separated each live in their own module:
+discovery and retrieval in `sources/`, parsing in `parsing/`, matching in `matching/`,
+normalisation in `normalise.py`, output in `output.py`, analysis in `analysis/`, with
+`pipeline.py` as the only place that wires them together.
+
+### Adding a second portal, format or matching strategy
+
+Only `pipeline.py` imports a concrete portal, and nothing outside `matching/` imports a
+concrete matcher, so each extension point is genuinely a new file rather than an edit
+spread across the codebase:
+
+| to add | write | changes elsewhere |
+|---|---|---|
+| another country's portal | one class implementing `NoticeSource` | **none** |
+| another matching strategy | one class implementing `Matcher` | **none** |
+| another document format | one parser returning `AnnexPack` | **none** |
+
+I checked this rather than assuming it. A stub Swedish portal returning one notice was
+matched, normalised, grouped and written to a row — carrying SEK rather than inheriting
+a hard-coded NOK — with **zero** lines of existing code changed. A GTIN-based matcher
+was added the same way and matched a notice that names no molecule at all.
+
+The row schema lives in exactly one place (`models.TenderRow`), so a new column is a
+one-line change and the CSV header follows automatically.
 
 **Time spent:** ~6 hours, roughly half on source discovery.
 
