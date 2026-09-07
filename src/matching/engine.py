@@ -19,7 +19,11 @@ from ..config import MOLECULES, Molecule
 from ..models import DetectionMethod, SourceNotice
 from ..naming import normalise_for_search
 from .base import Match, Matcher, searchable_text
-from .by_code import AtcCodeMatcher, TherapeuticBundleMatcher
+from .by_code import (
+    AtcCodeMatcher,
+    SourceFullTextMatcher,
+    TherapeuticBundleMatcher,
+)
 from .by_name import BrandNameMatcher, NameMatcher
 
 logger = logging.getLogger(__name__)
@@ -30,6 +34,9 @@ DEFAULT_MATCHERS: Final[tuple[Matcher, ...]] = (
     AtcCodeMatcher(),
     NameMatcher(),
     BrandNameMatcher(),
+    # After the direct matchers: only consulted when nothing in the notice text
+    # names the molecule, so it never overrides evidence we can read ourselves.
+    SourceFullTextMatcher(),
     TherapeuticBundleMatcher(),
 )
 

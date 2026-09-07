@@ -92,3 +92,49 @@ def test_named_match_is_reported_as_detected() -> None:
     engine = MatchingEngine(molecules=[LENALIDOMIDE])
     (match,) = engine.match_notice(notice("LIS 2234 Lenalidomid"))
     assert detected_flag(match) is True
+
+
+def test_recovers_notices_whose_text_the_api_does_not_expose() -> None:
+    """TED returns a generic OJ headline for pre-eForms notices.
+
+    The molecule is in the notice document - TED's own full-text index matched it -
+    but no field in the API response carries it. Dropping these lost real Norwegian
+    paliperidone tenders worth 7.4M and 14.7M NOK.
+    """
+    engine = MatchingEngine(molecules=[PALIPERIDONE])
+    generic = notice("Norway-Vadsø: Pharmaceutical products")
+    assert engine.match_notice(generic) == []  # nothing to match on its own
+
+    generic.matched_query = "paliperidon"
+    (match,) = engine.match_notice(generic)
+    assert match.method is DetectionMethod.SOURCE_FULL_TEXT
+    assert match.variant == "paliperidon"  # the exact term, so the claim is auditable
+
+
+def test_full_text_evidence_does_not_resurrect_a_rejected_false_positive() -> None:
+    """A readable title that simply is not about the molecule stays rejected.
+
+    TED's index matches a molecule named as a laboratory analyte too, so trusting the
+    search alone would have put the Shimadzu LC-MS/MS tender back into the output.
+    """
+    engine = MatchingEngine(molecules=[EVEROLIMUS])
+    lab = notice("76746 LC-MS/MS analysis platform")
+    lab.matched_query = "everolimus"
+    assert engine.match_notice(lab) == []
+
+
+def test_full_text_evidence_never_overrides_a_direct_match() -> None:
+    """When the notice names the molecule, that is the stronger evidence."""
+    engine = MatchingEngine(molecules=[LENALIDOMIDE])
+    named = notice("LIS 2234 Lenalidomid")
+    named.matched_query = "lenalidomid"
+    (match,) = engine.match_notice(named)
+    assert match.method is DetectionMethod.NAME_NORWEGIAN
+
+
+def test_full_text_evidence_requires_a_molecule_specific_query() -> None:
+    """A CPV or therapeutic-area sweep says nothing about which substance applies."""
+    engine = MatchingEngine(molecules=[PALIPERIDONE])
+    generic = notice("Norway-Vadsø: Pharmaceutical products")
+    generic.matched_query = "33600000"
+    assert engine.match_notice(generic) == []

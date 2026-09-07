@@ -4,7 +4,7 @@ Extracts tender data for five molecules — **Axitinib, Everolimus, Lenalidomide
 Anagrelide, Paliperidone** — from Norwegian public procurement sources, and turns it
 into a bid recommendation.
 
-Output: **44 rows** in `output/output.csv`, four charts in `output/charts/`.
+Output: **51 rows** in `output/output.csv`, four charts in `output/charts/`.
 **All 28 columns populated.**
 
 ---
@@ -144,16 +144,17 @@ packs to axitinib. The alias was removed and a test pins the behaviour.
 
 ## Identifying molecules four ways
 
-Name matching alone would have found **11 of 44 rows**.
+Name matching alone would have found **11 of 51 rows**.
 
 | method | rows | what it catches |
 |---|---|---|
 | `therapeutic-area-bundle` | 31 | molecules with no tender of their own |
+| `source-full-text` | 7 | notices whose text the API does not expose (see below) |
 | `name-norwegian` | 8 | `Lenalidomid`, `anagrelid`, `paliperidon` |
 | `name-english` | 3 | TED's English records of the same tenders |
 | `atc-code` | 2 | notices citing `N05AX13` and never naming the drug |
 
-Of the 44 rows, **4 are pack-level** (axitinib, from the LIS 2207 annex) and the rest
+Of the 51 rows, **4 are pack-level** (axitinib, from the LIS 2207 annex) and the rest
 are notice-level.
 
 **Norwegian spellings are derived by rule, not hard-coded.** Norwegian INN follows a
@@ -201,7 +202,24 @@ but values are taken, never summed, since notices restate the same figure.
 
 ## What the CSV contains
 
-**All 28 columns carry data.** Coverage varies by column, and that variation is itself
+**All 28 columns carry data.**
+
+### One matcher exists because the API hides the evidence
+
+TED returns a generic OJ headline — `Norway-Vadsø: Pharmaceutical products`, identical
+across every pharmaceutical tender — for notices published before eForms. Such a notice
+can be a genuine hit, found by TED's own full-text index, while carrying no molecule
+name in any field the API returns.
+
+Dropping them lost real data: two Norwegian paliperidone notices worth **7 432 000** and
+**14 671 946 NOK**, plus the TED records of the lenalidomide tender. The pipeline now
+keeps the search term that retrieved a notice and, when the response carries no readable
+subject, records that as its own detection method with the exact term in
+`moleculeVariant`, so the claim can be audited rather than taken on trust.
+
+It fires only when the text is genuinely unreadable. A notice with a descriptive title
+that simply is not about the molecule stays rejected — otherwise the Shimadzu LC-MS/MS
+tender would reappear, since TED's index matches a molecule named as a lab analyte too. Coverage varies by column, and that variation is itself
 the answer to "which fields do the sources genuinely support":
 
 | column | rows | source |

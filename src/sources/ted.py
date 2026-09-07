@@ -107,7 +107,13 @@ class TedSource:
         """
         query = f'FT~"{term}" AND buyer-country="{self._country}"'
         logger.info("ted: searching %r", term)
-        return [self._to_notice(n) for n in self._search(query, limit=limit)]
+        notices = [self._to_notice(n) for n in self._search(query, limit=limit)]
+        # TED returns a generic OJ headline for pre-eForms notices, so a genuine hit
+        # can arrive with no molecule name in any field we can read. Recording the
+        # term that matched preserves TED's own full-text evidence.
+        for notice in notices:
+            notice.matched_query = term
+        return notices
 
     def search_by_cpv(self, cpv_code: str, *, limit: int = 200) -> list[SourceNotice]:
         query = f'buyer-country="{self._country}" AND classification-cpv="{cpv_code}"'

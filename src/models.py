@@ -28,6 +28,9 @@ class DetectionMethod(StrEnum):
     ATC_CODE = "atc-code"
     CPV_CODE = "cpv-code"
     THERAPEUTIC_BUNDLE = "therapeutic-area-bundle"
+    # The portal's own full-text index matched the term inside the notice document,
+    # in a part the API's metadata fields do not expose.
+    SOURCE_FULL_TEXT = "source-full-text"
 
 
 class NoticeLifecycle(StrEnum):
@@ -72,6 +75,10 @@ class SourceNotice:
     awarded_supplier: str | None = None
     currency: str | None = None
     documents_url: str | None = None
+    # The search term that retrieved this notice. When a portal's full-text index
+    # matches a term inside the notice document, that is evidence the metadata
+    # fields do not carry, so it is kept rather than discarded.
+    matched_query: str | None = None
     # Identifiers used to recognise that two notices describe one procurement.
     procurement_key: str | None = None
     related_notice_ref: str | None = None

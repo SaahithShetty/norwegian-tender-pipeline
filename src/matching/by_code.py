@@ -21,7 +21,7 @@ from typing import Final
 
 from ..config import CPV_PHARMACEUTICAL, Molecule
 from ..models import DetectionMethod, SourceNotice
-from ..naming import normalise_for_search
+from ..naming import normalise_for_search, norwegian_variants
 from .base import Match, searchable_text
 
 # Predecessor ATC codes, searched alongside the current one so that notices published
@@ -102,3 +102,72 @@ class TherapeuticBundleMatcher:
     @staticmethod
     def _is_pharmaceutical(notice: SourceNotice) -> bool:
         return any(code.startswith(CPV_PHARMACEUTICAL[:4]) for code in notice.cpv_codes)
+
+
+class SourceFullTextMatcher:
+    """Trusts the portal's own full-text index when our fields cannot see the term.
+
+    TED returns a generic OJ headline ("Norway-Vadso: Pharmaceutical products") for
+    pre-eForms notices, with no descriptive title or description in the API response.
+    A notice can therefore be a genuine hit - TED's full-text search found the
+    molecule inside the notice document - while carrying no readable evidence of it.
+
+    Dropping those rows loses real data: three Norwegian paliperidone notices worth
+    7.4M and 14.7M NOK were being discarded this way. Rather than infer, this matcher
+    records the portal's finding as what it is: TED matched the term in the document,
+    and the exact term is written to `moleculeVariant` so the claim is auditable.
+
+    It fires only when the notice text genuinely carries no molecule name, so it never
+    overrides a direct match.
+    """
+
+    method = DetectionMethod.SOURCE_FULL_TEXT
+
+    def match(self, notice: SourceNotice, molecule: Molecule) -> Match | None:
+        query = (notice.matched_query or "").strip()
+        if not query:
+            return None
+
+        # The query has to identify *this* molecule: its name in either spelling, or
+        # its ATC code. A CPV sweep or therapeutic-area search says nothing about
+        # which substance a notice concerns.
+        normalised = normalise_for_search(query)
+        identifies = normalised in {
+            normalise_for_search(variant) for variant in norwegian_variants(molecule.inn_en)
+        } or query.upper() == molecule.atc_code.upper()
+        if not identifies:
+            return None
+
+        # This matcher exists for notices whose text we cannot read. When the text is
+        # readable and simply does not name the molecule, the portal's hit is not
+        # enough on its own: TED's index also matches a molecule mentioned as a
+        # laboratory analyte, which is how the Shimadzu LC-MS/MS tender resurfaced.
+        if _has_readable_subject(notice):
+            return None
+
+        return Match(
+            molecule=molecule,
+            method=DetectionMethod.SOURCE_FULL_TEXT,
+            variant=query,
+            confidence=0.85,
+        )
+
+
+# TED's generic OJ headline for pre-eForms notices. It is the same string for every
+# pharmaceutical tender, so its presence means the response told us nothing about the
+# notice's actual subject.
+_GENERIC_HEADLINE: Final[re.Pattern[str]] = re.compile(
+    r"^norway\b.*\b(pharmaceutical|medical|laboratory)", re.IGNORECASE
+)
+
+
+def _has_readable_subject(notice: SourceNotice) -> bool:
+    """Whether the notice tells us what it is actually for.
+
+    A descriptive title ("2632a Everolimus", "76746 LC-MS/MS analysis platform") is
+    readable; TED's generic OJ headline is not.
+    """
+    title = (notice.title or "").strip()
+    if not title:
+        return False
+    return not _GENERIC_HEADLINE.match(normalise_for_search(title))
